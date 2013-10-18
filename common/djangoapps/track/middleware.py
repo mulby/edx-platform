@@ -8,13 +8,13 @@ from track import contexts
 from eventtracking import tracker
 
 
-COURSE_CONTEXT_NAME = 'edx.course'
+REQUEST_CONTEXT_NAME = 'edx.request'
 
 
 class TrackMiddleware(object):
     def process_request(self, request):
         try:
-            self.enter_course_context(request)
+            self.enter_request_context(request)
 
             if not self.should_process_request(request):
                 return
@@ -66,20 +66,26 @@ class TrackMiddleware(object):
                 return False
         return True
 
-    def enter_course_context(self, request):
+    def enter_request_context(self, request):
         """
-        Extract course information from the request and add it to the
-        tracking context.
+        Extract information from the request and add it to the tracking
+        context.
         """
+        context = contexts.course_context_from_url(request.build_absolute_uri())
+        try:
+            context['user_id'] = request.user.pk
+        except:  # pylint: disable=bare-except
+            context['user_id'] = ''
+
         tracker.get_tracker().enter_context(
-            COURSE_CONTEXT_NAME,
-            contexts.course_context_from_url(request.build_absolute_uri())
+            REQUEST_CONTEXT_NAME,
+            context
         )
 
     def process_response(self, request, response):  # pylint: disable=unused-argument
-        """Exit the course context if it exists."""
+        """Exit the context if it exists."""
         try:
-            tracker.get_tracker().exit_context(COURSE_CONTEXT_NAME)
+            tracker.get_tracker().exit_context(REQUEST_CONTEXT_NAME)
         except:  # pylint: disable=bare-except
             pass
 

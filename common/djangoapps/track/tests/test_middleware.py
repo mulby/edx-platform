@@ -2,6 +2,7 @@ import re
 
 from mock import patch
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.test.client import RequestFactory
 from django.test.utils import override_settings
@@ -49,17 +50,24 @@ class TrackMiddlewareTestCase(TestCase):
         self.track_middleware.process_request(request)
         self.assertFalse(self.mock_server_track.called)
 
-    def test_request_in_course_context(self):
+    def test_request_context(self):
         request = self.request_factory.get('/courses/test_org/test_course/test_run/foo')
+        request.user = User.objects.create_user('testmiddleware', 'test@test.com', 'foobar')
+        self.addCleanup(request.user.delete)
+
         self.track_middleware.process_request(request)
-        self.assertEquals(
-            tracker.get_tracker().resolve_context(),
-            {
-                'course_id': 'test_org/test_course/test_run',
-                'org_id': 'test_org'
-            }
-        )
-        self.track_middleware.process_response(request, None)
+        try:
+            self.assertEquals(
+                tracker.get_tracker().resolve_context(),
+                {
+                    'course_id': 'test_org/test_course/test_run',
+                    'org_id': 'test_org',
+                    'user_id': request.user.pk
+                }
+            )
+        finally:
+            self.track_middleware.process_response(request, None)
+
         self.assertEquals(
             tracker.get_tracker().resolve_context(),
             {}
