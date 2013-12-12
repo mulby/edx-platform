@@ -20,6 +20,7 @@ from mitxmako.shortcuts import render_to_response
 
 from xmodule.error_module import ErrorDescriptor
 from xmodule.modulestore.django import modulestore, loc_mapper
+from xmodule.modulestore.locator import Locator
 from xmodule.modulestore.inheritance import own_metadata
 from xmodule.contentstore.content import StaticContent
 
@@ -58,7 +59,7 @@ __all__ = ['course_info_handler', 'course_handler', 'course_info_update_handler'
            'grading_handler',
            'advanced_settings_handler',
            'textbook_index', 'textbook_by_id',
-           'create_textbook']
+           'create_textbook', 'xblock_instance_listing']
 
 
 # pylint: disable=unused-argument
@@ -154,6 +155,28 @@ def course_listing(request):
 
     return render_to_response('index.html', {
         'courses': [format_course_for_view(c) for c in courses if not isinstance(c, ErrorDescriptor)],
+        'user': request.user,
+        'request_course_creator_url': reverse('contentstore.views.request_course_creator'),
+        'course_creator_status': _get_course_creator_status(request.user),
+    })
+
+
+@login_required
+@ensure_csrf_cookie
+def xblock_instance_listing(request):
+    """
+    List all xblocks
+    """
+    xblock_instances = modulestore('direct').get_items(['i4x', None, None, None, None])
+
+    def format_xblock_instance_for_view(instance):
+        xbi_loc = loc_mapper().translate_location(
+            'edX/E100/2013_SOND', instance.location, published=False, add_entry_if_missing=True
+        )
+        return (xbi_loc.url_reverse('unit/', ''), instance)
+
+    return render_to_response('instance_list.html', {
+        'instances': [format_xblock_instance_for_view(xbi) for xbi in xblock_instances if not isinstance(xbi, ErrorDescriptor) and len(xbi.display_name) > 0],
         'user': request.user,
         'request_course_creator_url': reverse('contentstore.views.request_course_creator'),
         'course_creator_status': _get_course_creator_status(request.user),

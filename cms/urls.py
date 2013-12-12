@@ -67,6 +67,7 @@ urlpatterns += patterns(
     url(r'^signup$', 'signup', name='signup'),
     url(r'^signin$', 'login_page', name='login'),
     url(r'^request_course_creator$', 'request_course_creator'),
+    url(r'^instances$', 'xblock_instance_listing'),
 
     # (?ix) == ignore case and verbose (multiline regex)
     url(r'(?ix)^course_team/{}(/)?(?P<email>.+)?$'.format(parsers.URL_RE_SOURCE), 'course_team_handler'),
