@@ -180,6 +180,7 @@ def xblock_instance_listing(request):
         'user': request.user,
         'request_course_creator_url': reverse('contentstore.views.request_course_creator'),
         'course_creator_status': _get_course_creator_status(request.user),
+        'category': request.GET.get('category', None)
     })
 
 
