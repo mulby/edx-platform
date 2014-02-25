@@ -944,6 +944,7 @@ class CapaMixin(CapaFields):
         event_info['correct_map'] = correct_map.get_dict()
         event_info['success'] = success
         event_info['attempts'] = self.attempts
+        event_info['answer_descriptions'] = self.get_answer_descriptions(answers)
         self.runtime.track_function('problem_check', event_info)
 
         if hasattr(self.runtime, 'psychometrics_handler'):  # update PsychometricsData using callback
@@ -956,6 +957,23 @@ class CapaMixin(CapaFields):
             'success': success,
             'contents': html,
         }
+
+    def get_answer_descriptions(self, answers):
+        description_map = {}
+        for input_id, answer in answers.iteritems():
+            problem_input = self.lcp.inputs.get(input_id)
+            if hasattr(problem_input, 'choices'):
+                choice_dict = dict(problem_input.choices)
+                if isinstance(answer, basestring):
+                    description = choice_dict[answer]
+                else:
+                    description = []
+                    for selected_answer in answer:
+                        description.append(choice_dict[selected_answer])
+
+                description_map[input_id] = description
+
+        return description_map
 
     def rescore_problem(self):
         """
