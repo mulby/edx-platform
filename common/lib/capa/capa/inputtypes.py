@@ -288,6 +288,9 @@ class InputTypeBase(object):
         html = self.capa_system.render_template(self.template, context)
         return etree.XML(html)
 
+    def get_answer_descriptions(self, answer):
+        return None
+
 
 #-----------------------------------------------------------------------------
 
@@ -418,6 +421,17 @@ class ChoiceGroup(InputTypeBase):
                     % choice.tag)
             choices.append((choice.get("name"), stringify_children(choice)))
         return choices
+
+    def get_answer_descriptions(self, answer):
+        choice_dict = dict(self.choices)
+        if isinstance(answer, basestring):
+            descriptions = choice_dict[answer]
+        else:
+            descriptions = []
+            for selected_answer in answer:
+                descriptions.append(choice_dict[selected_answer])
+
+        return descriptions
 
 
 #-----------------------------------------------------------------------------

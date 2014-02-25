@@ -962,16 +962,10 @@ class CapaMixin(CapaFields):
         description_map = {}
         for input_id, answer in answers.iteritems():
             problem_input = self.lcp.inputs.get(input_id)
-            if hasattr(problem_input, 'choices'):
-                choice_dict = dict(problem_input.choices)
-                if isinstance(answer, basestring):
-                    description = choice_dict[answer]
-                else:
-                    description = []
-                    for selected_answer in answer:
-                        description.append(choice_dict[selected_answer])
-
-                description_map[input_id] = description
+            if hasattr(problem_input, 'get_answer_descriptions'):
+                description = problem_input.get_answer_descriptions(answer)
+                if description is not None:
+                    description_map[input_id] = description
 
         return description_map
 
