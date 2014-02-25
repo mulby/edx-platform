@@ -288,6 +288,21 @@ class InputTypeBase(object):
         html = self.capa_system.render_template(self.template, context)
         return etree.XML(html)
 
+    def get_answer_text_map(self, answers):
+        """
+        Returns a map of an answer moniker, to its full text value.
+
+        Some input types may replace the full answer by an abbreviated
+        moniker, which is then used as a replacement of the student
+        answer. This function provides a map to go from the moniker
+        back to the full answer.
+
+        Subclasses should override this method if they use moniker,
+        otherwise it is not necessary.
+
+        """
+        return None
+
 
 #-----------------------------------------------------------------------------
 
@@ -418,6 +433,27 @@ class ChoiceGroup(InputTypeBase):
                     % choice.tag)
             choices.append((choice.get("name"), stringify_children(choice)))
         return choices
+
+    def get_answer_text_map(self, answers):
+        if isinstance(answers, basestring):
+            answers = [answers]
+
+        # Create map to go from the `choice_name` to `choice_text`
+        # removing all xml tags from the text.
+
+        def remove_xml_tags(value):
+            try:
+                result = etree.tostring(etree.fromstring(value), method='text')
+            except etree.XMLSyntaxError:
+                result = value
+            return result
+
+        answer_map = {}
+        choice_dict = dict(self.choices)
+        for answer in answers:
+            answer_map[answer] = remove_xml_tags(choice_dict[answer])
+
+        return answer_map
 
 
 #-----------------------------------------------------------------------------
@@ -1021,7 +1057,7 @@ class ChemicalEquationInput(InputTypeBase):
         """
         Can set size of text field.
         """
-        return [Attribute('size', '20'),             
+        return [Attribute('size', '20'),
                 Attribute('label', ''),]
 
     def _extra_context(self):

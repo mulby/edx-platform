@@ -1402,3 +1402,90 @@ class ComplexEncoderTest(unittest.TestCase):
         expected_str = '1-1*j'
         json_str = json.dumps(complex_num, cls=ComplexEncoder)
         self.assertEqual(expected_str, json_str[1:-1])  # ignore quotes
+
+
+class TestProblemCheckTracking(unittest.TestCase):
+    """
+    Ensure correct tracking information is included in events emitted during problem checks.
+    """
+
+    def test_choice_answer_text(self):
+        factory = self.capa_factory_for_problem_xml("""\
+            <problem display_name="Multiple Choice Questions">
+              <p>What color is the open ocean on a sunny day?</p>
+              <optionresponse>
+                <optioninput options="('yellow','blue','green')" correct="blue"/>
+              </optionresponse>
+              <p>Which piece of furniture is built for sitting?</p>
+              <multiplechoiceresponse>
+                <choicegroup type="MultipleChoice">
+                  <choice correct="false">
+                    <text>a table</text>
+                  </choice>
+                  <choice correct="false">
+                    <text>a desk</text>
+                  </choice>
+                  <choice correct="true">
+                    <text>a chair</text>
+                  </choice>
+                  <choice correct="false">
+                    <text>a bookshelf</text>
+                  </choice>
+                </choicegroup>
+              </multiplechoiceresponse>
+              <p>Which of the following are musical instruments?</p>
+              <choiceresponse>
+                <checkboxgroup direction="vertical">
+                  <choice correct="true">a piano</choice>
+                  <choice correct="false">a tree</choice>
+                  <choice correct="true">a guitar</choice>
+                  <choice correct="false">a window</choice>
+                </checkboxgroup>
+              </choiceresponse>
+            </problem>
+            """)
+        module = factory.create()
+
+        answer_input_dict = {
+            factory.input_key(2): 'blue',
+            factory.input_key(3): 'choice_0',
+            factory.input_key(4): ['choice_0', 'choice_1'],
+        }
+
+        answer_text_map = self.get_answer_text(module, answer_input_dict)
+        print answer_text_map
+        self.assertEquals(answer_text_map, {
+            # Note no map for factory.answer_key(2).
+            factory.answer_key(3): {'choice_0': 'a table'},
+            factory.answer_key(4): {'choice_0': 'a piano', 'choice_1': 'a tree'},
+        })
+
+    def capa_factory_for_problem_xml(self, xml):
+        class CustomCapaFactory(CapaFactory):
+            """
+            A factory for creating a Capa problem with arbitrary xml.
+            """
+            sample_problem_xml = textwrap.dedent(xml)
+
+        return CustomCapaFactory
+
+    def get_answer_text(self, module, answer_input_dict):
+        with patch.object(module.runtime, 'track_function') as mock_track_function:
+            module.check_problem(answer_input_dict)
+
+            self.assertEquals(len(mock_track_function.mock_calls), 1)
+            mock_call = mock_track_function.mock_calls[0]
+            event = mock_call[1][1]
+
+            return event['answers_text_map']
+
+    def test_textline(self):
+        factory = CapaFactory
+        module = factory.create()
+
+        answer_input_dict = {
+            factory.input_key(2): '3.14'
+        }
+
+        answer_descriptions = self.get_answer_text(module, answer_input_dict)
+        self.assertEquals(answer_descriptions, {})

@@ -867,6 +867,7 @@ class CapaMixin(CapaFields):
 
         answers = self.make_dict_of_responses(data)
         event_info['answers'] = convert_files_to_filenames(answers)
+        event_info['answers_text_map'] = self.lcp.get_input_answer_text_map(answers)
 
         _ = self.runtime.service(self, "i18n").ugettext
 

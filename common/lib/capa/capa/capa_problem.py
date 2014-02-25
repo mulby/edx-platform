@@ -419,6 +419,28 @@ class LoncapaProblem(object):
             answer_ids.append(results.keys())
         return answer_ids
 
+    def get_input_answer_text_map(self, answers):
+        """
+        Return a map of inputs to their corresponding `answer_text_map` if any.
+
+        The `answer_text_map` can be used to recover the full answer
+        text of certain inputs that use a moniker for the student
+        response.
+
+        If the input does not use monikers, then it is not included in
+        the map.
+
+        """
+
+        answer_map = {}
+        for input_id, answer in answers.iteritems():
+            problem_input = self.inputs.get(input_id)
+            answers_map = problem_input.get_answer_text_map(answer)
+            if answers_map:
+                answer_map[input_id] = answers_map
+
+        return answer_map
+
     def get_html(self):
         """
         Main method called externally to get the HTML to be rendered for this capa Problem.
