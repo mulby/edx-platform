@@ -945,6 +945,7 @@ class CapaMixin(CapaFields):
         event_info['correct_map'] = correct_map.get_dict()
         event_info['success'] = success
         event_info['attempts'] = self.attempts
+        event_info['answer_types'] = self.lcp.get_input_and_response_type_descriptions()
         self.runtime.track_function('problem_check', event_info)
 
         if hasattr(self.runtime, 'psychometrics_handler'):  # update PsychometricsData using callback

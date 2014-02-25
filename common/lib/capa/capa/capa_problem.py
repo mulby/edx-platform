@@ -441,12 +441,31 @@ class LoncapaProblem(object):
 
         return answer_map
 
+    def get_input_and_response_type_descriptions(self):
+        """
+        Return a map of inputs to their corresponding response and input type
+        descriptions. The map will map answer_ids to two element lists, the
+        first element is the tag used to declare the response type and the
+        second element is the tag used to declare the input type.
+        """
+
+        type_map = {}
+        for response in self.responders.keys():
+            response_tag = response.tag
+            answers = self.responder_answers[response]
+            for answer_id in answers.keys():
+                answer_input = self.inputs.get(answer_id)
+                type_map[answer_id] = [response_tag, getattr(answer_input, 'tag', '')]
+
+        return type_map
+
     def get_html(self):
         """
         Main method called externally to get the HTML to be rendered for this capa Problem.
         """
         html = contextualize_text(etree.tostring(self._extract_html(self.tree)), self.context)
         return html
+
 
     def handle_input_ajax(self, data):
         """

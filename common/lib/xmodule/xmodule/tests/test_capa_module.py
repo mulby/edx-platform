@@ -1452,12 +1452,16 @@ class TestProblemCheckTracking(unittest.TestCase):
             factory.input_key(4): ['choice_0', 'choice_1'],
         }
 
-        answer_text_map = self.get_answer_text(module, answer_input_dict)
-        print answer_text_map
-        self.assertEquals(answer_text_map, {
+        event = self.get_event_for_answers(module, answer_input_dict)
+        self.assertEquals(event['answers_text_map'], {
             # Note no map for factory.answer_key(2).
             factory.answer_key(3): {'choice_0': 'a table'},
             factory.answer_key(4): {'choice_0': 'a piano', 'choice_1': 'a tree'},
+        })
+        self.assertEquals(event['answer_types'], {
+            factory.answer_key(2): ['optionresponse', 'optioninput'],
+            factory.answer_key(3): ['multiplechoiceresponse', 'choicegroup'],
+            factory.answer_key(4): ['choiceresponse', 'checkboxgroup'],
         })
 
     def capa_factory_for_problem_xml(self, xml):
@@ -1469,7 +1473,7 @@ class TestProblemCheckTracking(unittest.TestCase):
 
         return CustomCapaFactory
 
-    def get_answer_text(self, module, answer_input_dict):
+    def get_event_for_answers(self, module, answer_input_dict):
         with patch.object(module.runtime, 'track_function') as mock_track_function:
             module.check_problem(answer_input_dict)
 
@@ -1477,9 +1481,9 @@ class TestProblemCheckTracking(unittest.TestCase):
             mock_call = mock_track_function.mock_calls[0]
             event = mock_call[1][1]
 
-            return event['answers_text_map']
+            return event
 
-    def test_textline(self):
+    def test_numerical_textline(self):
         factory = CapaFactory
         module = factory.create()
 
@@ -1487,5 +1491,8 @@ class TestProblemCheckTracking(unittest.TestCase):
             factory.input_key(2): '3.14'
         }
 
-        answer_descriptions = self.get_answer_text(module, answer_input_dict)
-        self.assertEquals(answer_descriptions, {})
+        event = self.get_event_for_answers(module, answer_input_dict)
+        self.assertEquals(event['answers_text_map'], {})
+        self.assertEquals(event['answer_types'], {
+            factory.answer_key(2): ['numericalresponse', 'textline']
+        })
