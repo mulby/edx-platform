@@ -22,6 +22,15 @@ ENDPOINT = '/segmentio/test/event'
 USER_ID = 10
 
 
+def expect_failure_with_message(message):
+    def test_decorator(func):
+        def test_decorated(self, *args, **kwargs):
+            self.assertRaisesRegexp(segmentio.EventValidationError, message, func, self, *args, **kwargs)
+            self.assertFalse(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
+        return test_decorated
+    return test_decorator
+
+
 @ddt
 @override_settings(
     TRACKING_SEGMENTIO_WEBHOOK_SECRET=SECRET,
@@ -42,7 +51,7 @@ class SegmentIOTrackingTestCase(TestCase):
 
     def test_get_request(self):
         request = self.request_factory.get(ENDPOINT)
-        response = segmentio.track_segmentio_event(request)
+        response = segmentio.segmentio_event(request)
         self.assertEquals(response.status_code, 405)
         self.assertFalse(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
 
@@ -51,37 +60,37 @@ class SegmentIOTrackingTestCase(TestCase):
     )
     def test_no_secret_config(self):
         request = self.request_factory.post(ENDPOINT)
-        response = segmentio.track_segmentio_event(request)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_UNAUTHORIZED, 401)
-
-    def assert_segmentio_uncommitted_response(self, response, expected_message, expected_status=400):
-        """Assert that no event was emitted and an appropriate commit==false message was returned"""
-        self.assertEquals(response.status_code, expected_status)
-        parsed_content = json.loads(response.content)
-        self.assertEquals(parsed_content, {'committed': False, 'message': expected_message})
+        response = segmentio.segmentio_event(request)
+        self.assertEquals(response.status_code, 401)
         self.assertFalse(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
 
     def test_no_secret_provided(self):
         request = self.request_factory.post(ENDPOINT)
-        response = segmentio.track_segmentio_event(request)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_UNAUTHORIZED, 401)
+        response = segmentio.segmentio_event(request)
+        self.assertEquals(response.status_code, 401)
+        self.assertFalse(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
 
     def test_secret_mismatch(self):
         request = self.create_request(key='y')
-        response = segmentio.track_segmentio_event(request)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_UNAUTHORIZED, 401)
+        response = segmentio.segmentio_event(request)
+        self.assertEquals(response.status_code, 401)
+        self.assertFalse(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
 
     def create_request(self, key=None, **kwargs):
         """Create a fake request that emulates a request from the segment.io servers to ours"""
         if key is None:
             key = SECRET
 
-        return self.request_factory.post(ENDPOINT + "?key=" + key, **kwargs)
+        request = self.request_factory.post(ENDPOINT + "?key=" + key, **kwargs)
+        if 'data' in kwargs:
+            request.json = json.loads(kwargs['data'])
+
+        return request
 
     @data('Identify', 'Group', 'Alias', 'Page', 'identify')
+    @expect_failure_with_message(segmentio.WARNING_IGNORED_ACTION)
     def test_segmentio_ignore_actions(self, action):
-        response = self.post_segmentio_event(action=action)
-        self.assert_segmentio_uncommitted_response(response, segmentio.WARNING_IGNORED_ACTION, 200)
+        self.post_segmentio_event(action=action)
 
     def post_segmentio_event(self, **kwargs):
         """Post a fake segment.io event to the view that processes it"""
@@ -89,12 +98,12 @@ class SegmentIOTrackingTestCase(TestCase):
             data=self.create_segmentio_event_json(**kwargs),
             content_type='application/json'
         )
-        return segmentio.track_segmentio_event(request)
+        segmentio.track_segmentio_event(request)
 
     @data('server', 'browser', 'Browser')
+    @expect_failure_with_message(segmentio.WARNING_IGNORED_CHANNEL)
     def test_segmentio_ignore_channels(self, channel):
-        response = self.post_segmentio_event(event_source=channel)
-        self.assert_segmentio_uncommitted_response(response, segmentio.WARNING_IGNORED_CHANNEL, 200)
+        self.post_segmentio_event(event_source=channel)
 
     def create_segmentio_event(self, **kwargs):
         """Populate a fake segment.io event with data of interest"""
@@ -139,13 +148,13 @@ class SegmentIOTrackingTestCase(TestCase):
         """Return a json string containing a fake segment.io event"""
         return json.dumps(self.create_segmentio_event(**kwargs))
 
+    @expect_failure_with_message(segmentio.ERROR_USER_NOT_EXIST)
     def test_no_user_for_user_id(self):
-        response = self.post_segmentio_event(user_id=40)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_USER_NOT_EXIST, 400)
+        self.post_segmentio_event(user_id=40)
 
+    @expect_failure_with_message(segmentio.ERROR_INVALID_USER_ID)
     def test_invalid_user_id(self):
-        response = self.post_segmentio_event(user_id='foobar')
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_INVALID_USER_ID, 400)
+        self.post_segmentio_event(user_id='foobar')
 
     @data('foo/bar/baz', 'course-v1:foo+bar+baz')
     def test_success(self, course_id):
@@ -161,7 +170,7 @@ class SegmentIOTrackingTestCase(TestCase):
         # The middleware normally emits an event, make sure it doesn't in this case.
         self.assertFalse(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
         try:
-            response = segmentio.track_segmentio_event(request)
+            response = segmentio.segmentio_event(request)
             self.assertEquals(response.status_code, 200)
 
             expected_event = {
@@ -202,9 +211,9 @@ class SegmentIOTrackingTestCase(TestCase):
         )
         User.objects.create(pk=USER_ID, username=str(sentinel.username))
         response = segmentio.track_segmentio_event(request)
-        self.assertEquals(response.status_code, 200)
         self.assertTrue(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
 
+    @expect_failure_with_message(segmentio.ERROR_MISSING_EVENT_TYPE)
     def test_missing_event_type(self):
         sample_event_raw = self.create_segmentio_event()
         del sample_event_raw['properties']['event_type']
@@ -214,9 +223,9 @@ class SegmentIOTrackingTestCase(TestCase):
         )
         User.objects.create(pk=USER_ID, username=str(sentinel.username))
 
-        response = segmentio.track_segmentio_event(request)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_MISSING_EVENT_TYPE, 400)
+        segmentio.track_segmentio_event(request)
 
+    @expect_failure_with_message(segmentio.ERROR_MISSING_TIMESTAMP)
     def test_missing_timestamp(self):
         sample_event_raw = self.create_event_without_fields('timestamp')
         request = self.create_request(
@@ -225,8 +234,7 @@ class SegmentIOTrackingTestCase(TestCase):
         )
         User.objects.create(pk=USER_ID, username=str(sentinel.username))
 
-        response = segmentio.track_segmentio_event(request)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_MISSING_TIMESTAMP, 400)
+        segmentio.track_segmentio_event(request)
 
     def create_event_without_fields(self, *fields):
         """Create a fake event and remove some fields from it"""
@@ -238,6 +246,7 @@ class SegmentIOTrackingTestCase(TestCase):
 
         return event
 
+    @expect_failure_with_message(segmentio.ERROR_MISSING_RECEIVED_AT)
     def test_missing_received_at(self):
         sample_event_raw = self.create_event_without_fields('receivedAt')
         request = self.create_request(
@@ -246,20 +255,11 @@ class SegmentIOTrackingTestCase(TestCase):
         )
         User.objects.create(pk=USER_ID, username=str(sentinel.username))
 
-        response = segmentio.track_segmentio_event(request)
-        self.assert_segmentio_uncommitted_response(response, segmentio.ERROR_MISSING_RECEIVED_AT, 400)
+        segmentio.track_segmentio_event(request)
 
     def test_string_user_id(self):
         User.objects.create(pk=USER_ID, username=str(sentinel.username))
-        response = self.post_segmentio_event(user_id=str(USER_ID))
-        result = self.assert_segmentio_committed_response(response)
+        self.post_segmentio_event(user_id=str(USER_ID))
+        result = self.mock_tracker.send.mock_calls[0][1][0]
         self.assertEquals(result['context']['user_id'], USER_ID)
-
-    def assert_segmentio_committed_response(self, response):
-        """Assert that an event was emitted"""
-        self.assertEquals(response.status_code, 200)
-        parsed_content = json.loads(response.content)
-        self.assertEquals(parsed_content, {'committed': True})
         self.assertTrue(self.mock_tracker.send.called)  # pylint: disable=maybe-no-member
-        return self.mock_tracker.send.mock_calls[0][1][0]
-

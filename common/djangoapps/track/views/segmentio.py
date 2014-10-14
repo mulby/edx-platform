@@ -6,6 +6,7 @@ import logging
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.http import HttpResponse
 from django.views.decorators.http import require_POST
 from django_future.csrf import csrf_exempt
 
@@ -34,6 +35,32 @@ ERROR_MISSING_RECEIVED_AT = 'Required receivedAt field not found'
 @require_POST
 @expect_json
 @csrf_exempt
+def segmentio_event(request):
+    # Validate the security token. We must use a query string parameter for this since we cannot customize the POST body
+    # in the segment.io webhook configuration, we can only change the URL that they call, so we force this token to be
+    # included in the URL and reject any requests that do not include it. This also assumes HTTPS is used to make the
+    # connection between their server and ours.
+    expected_secret = getattr(settings, 'TRACKING_SEGMENTIO_WEBHOOK_SECRET', None)
+    provided_secret = request.GET.get('key')
+    if not expected_secret or provided_secret != expected_secret:
+        return HttpResponse(status=401)
+
+    try:
+        track_segmentio_event(request)
+    except EventValidationError as err:
+        log.warning(
+            'Unable to process event received from segment.io: message="%s" event="%s"',
+            str(err),
+            request.body
+        )
+
+    return HttpResponse(status=200)
+
+
+class EventValidationError(Exception):
+    pass
+
+
 def track_segmentio_event(request):
     """
     An endpoint for logging events using segment.io's webhook integration.
@@ -81,26 +108,11 @@ def track_segmentio_event(request):
 
     """
 
-    # Validate the security token. We must use a query string parameter for this since we cannot customize the POST body
-    # in the segment.io webhook configuration, we can only change the URL that they call, so we force this token to be
-    # included in the URL and reject any requests that do not include it. This also assumes HTTPS is used to make the
-    # connection between their server and ours.
-    expected_secret = getattr(settings, 'TRACKING_SEGMENTIO_WEBHOOK_SECRET', None)
-    provided_secret = request.GET.get('key')
-    if not expected_secret or provided_secret != expected_secret:
-        return failure_response(ERROR_UNAUTHORIZED, status=401)
-
     # The POST body will contain the JSON encoded event
     full_segment_event = request.json
 
     # We mostly care about the properties
     segment_event = full_segment_event.get('properties', {})
-
-    def logged_failure_response(*args, **kwargs):
-        """Indicate a failure and log information about the event that will aide debugging efforts"""
-        failed_response = failure_response(*args, **kwargs)
-        log.warning('Unable to process event received from segment.io: %s', json.dumps(full_segment_event))
-        return failed_response
 
     # Selectively listen to particular channels, note that the client can set the "event_source" field in the
     # "properties" dict to override the channel provided by segment.io. This is necessary because there is a bug in some
@@ -108,13 +120,13 @@ def track_segmentio_event(request):
     channel = segment_event.get('event_source')
     allowed_channels = [c.lower() for c in getattr(settings, 'TRACKING_SEGMENTIO_ALLOWED_CHANNELS', [])]
     if not channel or channel.lower() not in allowed_channels:
-        return response(WARNING_IGNORED_CHANNEL, committed=False)
+        raise EventValidationError(WARNING_IGNORED_CHANNEL)
 
     # Ignore actions that are unsupported
     action = full_segment_event.get('action')
     allowed_actions = [a.lower() for a in getattr(settings, 'TRACKING_SEGMENTIO_ALLOWED_ACTIONS', [])]
     if not action or action.lower() not in allowed_actions:
-        return response(WARNING_IGNORED_ACTION, committed=False)
+        raise EventValidationError(WARNING_IGNORED_ACTION)
 
     context = {}
 
@@ -131,15 +143,15 @@ def track_segmentio_event(request):
 
     user_id = full_segment_event.get('userId')
     if not user_id:
-        return logged_failure_response(ERROR_MISSING_USER_ID)
+        raise EventValidationError(ERROR_MISSING_USER_ID)
 
     # userId is assumed to be the primary key of the django User model
     try:
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
-        return logged_failure_response(ERROR_USER_NOT_EXIST)
+        raise EventValidationError(ERROR_USER_NOT_EXIST)
     except ValueError:
-        return logged_failure_response(ERROR_INVALID_USER_ID)
+        raise EventValidationError(ERROR_INVALID_USER_ID)
     else:
         context['user_id'] = user.id
 
@@ -161,17 +173,17 @@ def track_segmentio_event(request):
     if 'timestamp' in full_segment_event:
         time = parse_iso8601_timestamp(full_segment_event['timestamp'])
     else:
-        return logged_failure_response(ERROR_MISSING_TIMESTAMP)
+        raise EventValidationError(ERROR_MISSING_TIMESTAMP)
 
     if 'receivedAt' in full_segment_event:
         context['received_at'] = parse_iso8601_timestamp(full_segment_event['receivedAt'])
     else:
-        return logged_failure_response(ERROR_MISSING_RECEIVED_AT)
+        raise EventValidationError(ERROR_MISSING_RECEIVED_AT)
 
     if 'event_type' in segment_event:
         event_type = segment_event['event_type']
     else:
-        return logged_failure_response(ERROR_MISSING_EVENT_TYPE)
+        raise EventValidationError(ERROR_MISSING_EVENT_TYPE)
 
     with eventtracker.get_tracker().context('edx.segmentio', context):
         complete_context = eventtracker.get_tracker().resolve_context()
@@ -197,33 +209,6 @@ def track_segmentio_event(request):
     shim.remove_shim_context(event)
 
     tracker.send(event)
-
-    return response()
-
-
-def response(message=None, status=200, committed=True):
-    """
-    Produce a response from the segment.io event handler.
-
-    Returns: A JSON encoded string giving more information about what action was taken while processing the request.
-    """
-    result = {
-        'committed': committed
-    }
-
-    if message:
-        result['message'] = message
-
-    return JsonResponse(result, status=status)
-
-
-def failure_response(message, status=400):
-    """
-    Return a failure response when something goes wrong handling segment.io events.
-
-    Returns: A JSON encoded string giving more information about what went wrong when processing the request.
-    """
-    return response(message=message, status=status, committed=False)
 
 
 def parse_iso8601_timestamp(timestamp):
